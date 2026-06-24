@@ -1,0 +1,179 @@
+/* YOOWA Weekly Report — internal operations tool.
+   Direction: a "ledger console". Warm paper-cream worksheet against a deep
+   ink panel, monospaced figures (this is accounting), one signal colour
+   (YOOWA green) reserved for the generate action and confirmed totals. */
+
+:root {
+  --ink: #14201b;
+  --ink-soft: #20322b;
+  --paper: #f5f1e6;
+  --paper-line: #e4ddca;
+  --green: #1f7a4d;
+  --green-bright: #28a567;
+  --amber: #c08a2d;
+  --red: #b3402f;
+  --text: #1a1a17;
+  --text-dim: #6b6a5f;
+  --mono: "SFMono-Regular", "JetBrains Mono", "Menlo", monospace;
+  --sans: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--sans);
+  background: var(--ink);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+.shell { max-width: 1080px; margin: 0 auto; padding: 32px 20px 80px; }
+
+/* Masthead */
+.masthead {
+  display: flex; align-items: baseline; justify-content: space-between;
+  border-bottom: 2px solid var(--green-bright);
+  padding-bottom: 14px; margin-bottom: 28px; color: var(--paper);
+  flex-wrap: wrap; gap: 8px;
+}
+.masthead h1 {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+}
+.masthead h1 span { color: var(--green-bright); }
+.masthead .tag {
+  font-family: var(--mono); font-size: 12px; color: #9fb8ab;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+
+/* Worksheet card */
+.sheet {
+  background: var(--paper);
+  border-radius: 10px;
+  padding: 28px;
+  box-shadow: 0 18px 50px -20px rgba(0,0,0,0.6);
+}
+
+.step-label {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--green);
+  display: flex; align-items: center; gap: 8px; margin: 0 0 12px;
+}
+.step-label::before {
+  content: ""; width: 18px; height: 2px; background: var(--green);
+}
+.block { margin-bottom: 26px; }
+.block:last-child { margin-bottom: 0; }
+
+/* Dropzones */
+.drops { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.drop {
+  border: 1.5px dashed var(--paper-line);
+  border-radius: 8px; padding: 18px; background: #fbf9f1;
+  cursor: pointer; transition: border-color .15s, background .15s;
+}
+.drop:hover { border-color: var(--green); background: #f6f9f3; }
+.drop.filled { border-style: solid; border-color: var(--green); background: #f1f7f1; }
+.drop .name { font-weight: 600; font-size: 14px; }
+.drop .hint { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+.drop .file { font-family: var(--mono); font-size: 12px; color: var(--green); margin-top: 8px; word-break: break-all; }
+
+/* Fields */
+.grid { display: grid; gap: 14px; }
+.grid.two { grid-template-columns: 1fr 1fr; }
+.grid.rates { grid-template-columns: repeat(5, 1fr); }
+.field label {
+  display: block; font-size: 12px; font-weight: 600; color: var(--text-dim);
+  margin-bottom: 5px;
+}
+.field input {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--paper-line);
+  border-radius: 6px; font-family: var(--mono); font-size: 14px;
+  background: #fff; color: var(--text);
+}
+.field input:focus { outline: 2px solid var(--green-bright); border-color: transparent; }
+.field .note { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
+.divider { height: 1px; background: var(--paper-line); margin: 24px 0; }
+
+/* Actions */
+.actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+button {
+  font-family: var(--sans); font-weight: 600; font-size: 14px;
+  border: none; border-radius: 7px; padding: 12px 22px; cursor: pointer;
+  transition: transform .08s, background .15s, opacity .15s;
+}
+button:active { transform: translateY(1px); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.btn-preview { background: var(--ink); color: var(--paper); }
+.btn-generate { background: var(--green-bright); color: #fff; }
+.btn-generate:hover:not(:disabled) { background: var(--green); }
+
+/* Summary panel */
+.summary {
+  margin-top: 22px; border: 1px solid var(--paper-line); border-radius: 8px;
+  overflow: hidden;
+}
+.summary h3 {
+  background: var(--ink); color: var(--paper); font-size: 12px;
+  letter-spacing: 0.1em; text-transform: uppercase; padding: 10px 16px;
+  font-family: var(--mono); font-weight: 500;
+}
+.summary table { width: 100%; border-collapse: collapse; }
+.summary td {
+  padding: 9px 16px; font-size: 13px; border-bottom: 1px solid var(--paper-line);
+}
+.summary tr:last-child td { border-bottom: none; }
+.summary td.k { color: var(--text-dim); }
+.summary td.v { font-family: var(--mono); text-align: right; font-weight: 600; }
+.summary tr.net td { background: #f1f7f1; }
+.summary tr.net td.v { color: var(--green); font-size: 15px; }
+
+/* Status line */
+.status { font-size: 13px; margin-left: auto; font-family: var(--mono); }
+.status.err { color: var(--red); }
+.status.ok { color: var(--green); }
+.status.busy { color: var(--amber); }
+
+.foot {
+  margin-top: 24px; font-size: 11px; color: #7d958a;
+  font-family: var(--mono); text-align: center;
+}
+
+@media (max-width: 720px) {
+  .drops, .grid.two, .grid.rates { grid-template-columns: 1fr; }
+  .grid.rates { grid-template-columns: 1fr 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+
+/* Section 8 deductions */
+.s8-help { font-size: 12px; color: var(--text-dim); margin: -4px 0 14px; line-height: 1.5; }
+.ded-head, .ded-row {
+  display: grid; grid-template-columns: 2fr 1fr 1fr 32px; gap: 10px; align-items: center;
+}
+.ded-head {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-dim); margin-bottom: 8px; padding: 0 2px;
+}
+.ded-row { margin-bottom: 8px; }
+.ded-row input {
+  padding: 8px 10px; border: 1px solid var(--paper-line); border-radius: 6px;
+  font-family: var(--mono); font-size: 13px; background: #fff; width: 100%;
+}
+.ded-row input:focus { outline: 2px solid var(--green-bright); border-color: transparent; }
+.ded-x {
+  background: transparent; color: var(--red); font-size: 18px; padding: 4px;
+  line-height: 1; border-radius: 6px;
+}
+.ded-x:hover { background: #f7e7e4; }
+.ded-add {
+  background: transparent; color: var(--green); font-size: 13px; padding: 8px 0;
+  font-weight: 600;
+}
+.ded-add:hover { text-decoration: underline; }
+@media (max-width: 720px) {
+  .ded-head { display: none; }
+  .ded-row { grid-template-columns: 1fr 1fr 1fr 28px; }
+}
