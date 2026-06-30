@@ -1,4 +1,4 @@
-# YOOWA Weekly Report Generator
+# Reportâ
 
 Turns the **Lagos 2025** workbook into the filled **Weekly Accounting Report**
 `.docx` in well under 10 minutes. Reads the spreadsheet, applies conversions,

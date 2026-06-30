@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 import report_engine as R
 
-app = FastAPI(title="YOOWA Weekly Report API")
+app = FastAPI(title="Reporta API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -135,4 +135,4 @@ async def generate(
 
 @app.get("/")
 def root():
-    return {"status": "YOOWA Report API running"}
+    return {"Reporta API running"}

@@ -152,7 +152,7 @@ export default function App() {
   return (
     <div className="shell">
       <div className="masthead">
-        <h1>YOOWA <span>Weekly Report</span></h1>
+        <h1>Report<span>â</span></h1>
         <div className="tag">Lefkosa · Magusa · ledger console</div>
       </div>
 
