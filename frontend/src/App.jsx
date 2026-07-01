@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 
-const API = '/api' // proxied to FastAPI in dev (see vite.config.js)
+const API = import.meta.env.VITE_API_URL || '/api'
 
 // Sunday-to-Saturday default isn't assumed; the user picks both dates.
 function todayISO(offset = 0) {

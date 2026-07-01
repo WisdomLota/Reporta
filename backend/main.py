@@ -18,6 +18,7 @@ POST /preview  -> same inputs, returns JSON summary (no file) for the UI to show
 import datetime
 import io
 import json
+import os
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,9 +28,12 @@ import report_engine as R
 
 app = FastAPI(title="Reporta API")
 
+_origins = os.environ.get("FRONTEND_ORIGIN", "*")
+_allow = ["*"] if _origins == "*" else [o.strip() for o in _origins.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allow,
     allow_methods=["*"],
     allow_headers=["*"],
 )
