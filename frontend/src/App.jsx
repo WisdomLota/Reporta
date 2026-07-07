@@ -57,13 +57,13 @@ export default function App() {
   const [preparedBy, setPreparedBy] = useState('FESTUS')
   // Section 8 deductions are manual weekly judgement entries — not in the sheet.
   const [deductions, setDeductions] = useState([
-    { label: 'Cash Expense Payments', lagos: '', abuja: '' },
-    { label: 'Chicken', lagos: '', abuja: '' },
+    { label: 'Salaries (Staff Advances)', lagos: '', abuja: '' },
     { label: 'Greep', lagos: '', abuja: '' },
-    { label: 'Advance for Jadesola', lagos: '', abuja: '' },
     { label: 'Other Expenses', lagos: '', abuja: '' },
   ])
   const [debtPayable, setDebtPayable] = useState('')
+  const [otherMisc, setOtherMisc] = useState('')
+  const [otherBulk, setOtherBulk] = useState('')
   const [cashPayments, setCashPayments] = useState('')
   const [notesLagos, setNotesLagos] = useState('NIL')
   const [notesAbuja, setNotesAbuja] = useState('NIL')
@@ -104,6 +104,8 @@ export default function App() {
         cash_payments_made: cashPayments.trim(),
         notes_lagos: notesLagos.trim(),
         notes_abuja: notesAbuja.trim(),
+        other_misc: otherMisc.trim(),
+        other_bulk: otherBulk.trim(),
       })
     )
     return fd
@@ -214,11 +216,11 @@ export default function App() {
         {/* Section 8 — manual deductions */}
         <div className="divider" />
         <div className="block">
-          <p className="step-label">Section 8 · net revenue deductions</p>
+          <p className="step-label">Fixed / operational costs</p>
           <p className="s8-help">
             These aren't in the spreadsheet — they're your weekly entries
-            (Greep, advances, picked cash payments). Gross and Net are
-            calculated for you; leave a row blank to skip it.
+            (staff advances, Greep, other costs). Gross and Net are calculated
+            for you; leave a row blank to skip it.
           </p>
           <div className="ded-head">
             <span>Deduction</span><span>Lagos (₺)</span><span>Abuja (₺)</span><span />
@@ -243,6 +245,14 @@ export default function App() {
             <Field label="Cash payments made this week (₺)"
               value={cashPayments} placeholder="e.g. 66,503"
               onChange={(e) => setCashPayments(e.target.value)} />
+          </div>
+          <div className="grid two" style={{ marginTop: 14 }}>
+            <Field label="Other Expenses — miscellaneous (₺)"
+              value={otherMisc} placeholder="e.g. 4,700"
+              onChange={(e) => setOtherMisc(e.target.value)} />
+            <Field label="Other Expenses — bulk purchase (₺)"
+              value={otherBulk} placeholder="e.g. 15,000"
+              onChange={(e) => setOtherBulk(e.target.value)} />
           </div>
           <div className="grid two" style={{ marginTop: 14 }}>
             <Field label="Notes — Lagos (Lefkosa)" value={notesLagos}
@@ -275,9 +285,9 @@ export default function App() {
               <tbody>
                 <tr><td className="k">Gross revenue — Lefkosa</td><td className="v">{money(summary.gross_lagos)}</td></tr>
                 <tr><td className="k">Gross revenue — Magusa</td><td className="v">{money(summary.gross_abuja)}</td></tr>
-                <tr><td className="k">Expenses (Section 7) — Lefkosa</td><td className="v">{money(summary.expenses_lagos)}</td></tr>
-                <tr><td className="k">Expenses (Section 7) — Magusa</td><td className="v">{money(summary.expenses_abuja)}</td></tr>
-                <tr><td className="k">Section 8 deductions — Lefkosa</td><td className="v">{money(summary.deductions_lagos)}</td></tr>
+                <tr><td className="k">Expenses — Lefkosa</td><td className="v">{money(summary.expenses_lagos)}</td></tr>
+                <tr><td className="k">Expenses — Magusa</td><td className="v">{money(summary.expenses_abuja)}</td></tr>
+                <tr><td className="k">Fixed/operational — Lefkosa</td><td className="v">{money(summary.fixed_lagos)}</td></tr>
                 <tr><td className="k">Net remaining — Lefkosa</td><td className="v">{money(summary.net_lagos)}</td></tr>
                 <tr><td className="k">Net remaining — Magusa</td><td className="v">{money(summary.net_abuja)}</td></tr>
                 <tr className="net"><td className="k">Combined net revenue</td><td className="v">{money(summary.net)}</td></tr>

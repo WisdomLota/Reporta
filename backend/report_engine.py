@@ -140,6 +140,9 @@ EXPENSE_ALIAS = {
     "Mixed Vegetable": "Mix Vegetable",
     "Sweet Pepper Paste": "Sweet pepper paste",
     "Aluminium foil": "Aluminium Foil",
+    "Aluminium foil": "Aluminium Foil",
+    "Bike Repairs": "Bike Fixing",
+    "Delivery Driver": "Kitchen Staff Payment",
 }
 
 
@@ -184,227 +187,319 @@ def extract_expenses(ws, start, end, report_items):
 # ----------------------------------------------------------------------------
 def build_report(xlsx_bytes, template_bytes, *, start, end, rates, header, section8=None):
     """
-    xlsx_bytes / template_bytes : raw file bytes
-    start, end : datetime.date  (7-day window)
-    rates : dict -> naira (e.g. 32 means 32 naira = 1 TL), usdt, usd, eur, gbp
-    header : dict -> prepared_by, date_prepared, exchange_rate_text
-    Returns filled .docx as bytes.
+    Fills the UPDATED Weekly Accounting Report template.
+
+    Extraction (HAMITKOY SALES=Lagos, MAGUSA SALES=Abuja, EXPENSE SHEET by item)
+    is unchanged. Only the docx-fill half is rewritten to match the new,
+    reorganised template:
+
+      T0  header            T1  top summary          T2/T3 Naira day tables
+      T4/T5 Cash day tables T6/T7 Day-total tables   T8 crypto amounts
+      T9  currency rates    T10 revenue breakdown    T11-14 expense categories
+      T15 expense rollup    T16 fixed/operational    T17 net calc   T18 notes
+
+    Fixed/Operational costs (Salaries/Advances, Greep, Other Expenses) and the
+    Outstanding Debt figure are manual weekly entries, passed via `section8`.
     """
     wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes), data_only=True)
     doc = Document(io.BytesIO(template_bytes))
+    T = doc.tables
+    if len(T) < 19:
+        raise ValueError(
+            f"This template has {len(T)} tables; the updated Reporta template "
+            f"needs 19. Please upload UPDATED_YOOWA_Weekly_Accounting_Report_Template."
+        )
 
     naira_rate = float(rates.get("naira", 32)) or 32.0
+    usdt_rate = float(rates.get("usdt", 43))
+    usd_rate = float(rates.get("usd", 44.5))
+    eur_rate = float(rates.get("eur", 0) or 0)
+    gbp_rate = float(rates.get("gbp", 0) or 0)
 
     lagos = extract_sales(wb["HAMITKOY SALES"], start, end)
     abuja = extract_sales(wb["MAGUSA SALES"], start, end)
 
-    # ---- Section header (table 0) ----
-    t = doc.tables[0]
+    def total(site, key):
+        return sum(site[key])
+
+    # ---- T0: header ----
+    t = T[0]
     t.cell(0, 1).text = f"{start.strftime('%d/%m/%Y')} to {end.strftime('%d/%m/%Y')}"
     t.cell(0, 3).text = header.get("prepared_by", "FESTUS")
-    t.cell(1, 1).text = header.get("exchange_rate_text", f"{int(naira_rate)} = ₺1")
+    t.cell(1, 1).text = header.get("exchange_rate_text", f"{int(naira_rate)} = TL1")
     t.cell(1, 3).text = header.get("date_prepared", datetime.date.today().strftime("%d/%m/%Y"))
 
-    # ---- Section 1: Naira -> TL (tables 1=Lagos, 2=Abuja) ----
+    # ---- T2/T3: Naira -> TL day tables (Lagos, Abuja) ----
     def fill_naira(table, naira_list):
-        total_n = total_tl = 0.0
+        tot_n = tot_tl = 0.0
         for i in range(7):
             n = naira_list[i]
             tl = n / naira_rate
             table.cell(i + 1, 1).text = f"{int(round(n)):,}" if n else "0"
             table.cell(i + 1, 2).text = _money(tl)
-            total_n += n
-            total_tl += tl
-        table.cell(8, 1).text = f"{int(round(total_n)):,}"
-        table.cell(8, 2).text = _money(total_tl)
-        return total_tl
+            tot_n += n
+            tot_tl += tl
+        table.cell(8, 1).text = f"{int(round(tot_n)):,}"
+        table.cell(8, 2).text = _money(tot_tl)
+        return tot_tl
 
-    lagos_naira_tl = fill_naira(doc.tables[1], lagos["naira"])
-    abuja_naira_tl = fill_naira(doc.tables[2], abuja["naira"])
+    lagos_naira_tl = fill_naira(T[2], lagos["naira"])
+    abuja_naira_tl = fill_naira(T[3], abuja["naira"])
 
-    # ---- Section 2: Cash (tables 3=Lagos, 4=Abuja) ----
-    def fill_cash(table, cash_list):
-        total = 0.0
+    # ---- T4/T5: Cash day tables ----
+    def fill_single(table, values):
+        tot = 0.0
         for i in range(7):
-            c = cash_list[i]
-            table.cell(i + 1, 1).text = _money(c)
-            total += c
-        table.cell(8, 1).text = _money(total)
-        return total
+            table.cell(i + 1, 1).text = _money(values[i])
+            tot += values[i]
+        table.cell(8, 1).text = _money(tot)
+        return tot
 
-    lagos_cash = fill_cash(doc.tables[3], lagos["cash"])
-    abuja_cash = fill_cash(doc.tables[4], abuja["cash"])
+    lagos_cash = fill_single(T[4], lagos["cash"])
+    abuja_cash = fill_single(T[5], abuja["cash"])
 
-    # ---- Section 3: POS+IBAN (tables 5=Lagos, 6=Abuja) ----
-    def fill_pos(table, pos_list):
-        total = 0.0
+    # ---- Section totals we need for later ----
+    lagos_pos = total(lagos, "pos")
+    abuja_pos = total(abuja, "pos")
+    lagos_usdt = total(lagos, "usdt")
+    abuja_usdt = total(abuja, "usdt")
+    lagos_redot = total(lagos, "redot")
+    abuja_redot = total(abuja, "redot")
+    lagos_usd = total(lagos, "usd")
+    abuja_usd = total(abuja, "usd")
+
+    # ---- T6/T7: Day-total tables (Naira TL + Cash + POS per day) ----
+    def fill_day_totals(table, site):
+        tot = 0.0
         for i in range(7):
-            p = pos_list[i]
-            table.cell(i + 1, 1).text = _money(p)
-            total += p
-        table.cell(8, 1).text = _money(total)
-        return total
+            day = site["naira"][i] / naira_rate + site["cash"][i] + site["pos"][i]
+            table.cell(i + 1, 1).text = _money(day)
+            tot += day
+        table.cell(8, 1).text = _money(tot)
+        return tot
 
-    lagos_pos = fill_pos(doc.tables[5], lagos["pos"])
-    abuja_pos = fill_pos(doc.tables[6], abuja["pos"])
+    fill_day_totals(T[6], lagos)
+    fill_day_totals(T[7], abuja)
 
-    # ---- Section 4: USDT + Redot (table 7) ----
-    usdt_rate = float(rates.get("usdt", 43))
-    lagos_usdt = sum(lagos["usdt"])
-    abuja_usdt = sum(abuja["usdt"])
-    lagos_redot = sum(lagos["redot"])
-    abuja_redot = sum(abuja["redot"])
-    t7 = doc.tables[7]
-    t7.cell(1, 1).text = f"${lagos_usdt:,.2f}"
-    t7.cell(1, 2).text = f"${abuja_usdt:,.2f}"
-    t7.cell(1, 3).text = f"${lagos_usdt + abuja_usdt:,.2f}"
-    t7.cell(3, 1).text = f"${lagos_redot:,.2f}"
-    t7.cell(3, 2).text = f"${abuja_redot:,.2f}"
-    t7.cell(3, 3).text = f"${lagos_redot + abuja_redot:,.2f}"
+    # ---- T8: crypto amounts (USDT / USD / Redot) in $ ----
+    t8 = T[8]
+    t8.cell(1, 1).text = f"${lagos_usdt:,.2f}"
+    t8.cell(1, 2).text = f"${abuja_usdt:,.2f}  (${lagos_usdt + abuja_usdt:,.2f} combined)"
+    t8.cell(2, 1).text = f"${lagos_usd:,.2f}"
+    t8.cell(2, 2).text = f"${abuja_usd:,.2f}  (${lagos_usd + abuja_usd:,.2f} combined)"
+    t8.cell(3, 1).text = f"${lagos_redot:,.2f}"
+    t8.cell(3, 2).text = f"${abuja_redot:,.2f}  (${lagos_redot + abuja_redot:,.2f} combined)"
+    sec_l = lagos_usdt + lagos_usd + lagos_redot
+    sec_a = abuja_usdt + abuja_usd + abuja_redot
+    t8.cell(4, 1).text = f"${sec_l:,.2f}"
+    t8.cell(4, 2).text = f"${sec_a:,.2f}  (${sec_l + sec_a:,.2f} combined)"
+
+    # ---- T9: currency rate table (fill Rate + TL Value) ----
+    usdt_tl = (lagos_usdt + abuja_usdt) * usdt_rate
+    usd_tl = (lagos_usd + abuja_usd) * usd_rate
+    t9 = T[9]
+    t9.cell(1, 1).text = f"{usdt_rate:g}"
+    t9.cell(1, 2).text = _money(usdt_tl)
+    t9.cell(2, 1).text = f"{usd_rate:g}"
+    t9.cell(2, 2).text = _money(usd_tl)
+    if eur_rate:
+        t9.cell(3, 1).text = f"{eur_rate:g}"
+    if gbp_rate:
+        t9.cell(4, 1).text = f"{gbp_rate:g}"
+
+    # TL equivalents used across summary
     usdt_tl_l = lagos_usdt * usdt_rate
     usdt_tl_a = abuja_usdt * usdt_rate
     redot_tl_l = lagos_redot * usdt_rate
     redot_tl_a = abuja_redot * usdt_rate
-
-    # ---- Section 5: Foreign currencies (table 8) just records rates given ----
-    usd_rate = float(rates.get("usd", 44.5))
-    lagos_usd = sum(lagos["usd"])
-    abuja_usd = sum(abuja["usd"])
     foreign_tl_l = lagos_usd * usd_rate
     foreign_tl_a = abuja_usd * usd_rate
 
-    # ---- Section 6: Revenue summary (table 9) ----
-    t9 = doc.tables[9]
+    gross_l = (lagos_naira_tl + lagos_cash + lagos_pos + usdt_tl_l
+               + redot_tl_l + foreign_tl_l)
+    gross_a = (abuja_naira_tl + abuja_cash + abuja_pos + usdt_tl_a
+               + redot_tl_a + foreign_tl_a)
 
-    def row(idx, l, a):
-        t9.cell(idx, 1).text = _money(l)
-        t9.cell(idx, 2).text = _money(a)
-        t9.cell(idx, 3).text = _money(l + a)
+    # ---- T10: revenue breakdown ----
+    t10 = T[10]
 
-    row(1, lagos_naira_tl, abuja_naira_tl)
-    row(2, lagos_cash, abuja_cash)
-    row(3, lagos_pos, abuja_pos)
-    row(4, usdt_tl_l, usdt_tl_a)
-    row(5, redot_tl_l, redot_tl_a)
-    row(6, foreign_tl_l, foreign_tl_a)
-    gross_l = lagos_naira_tl + lagos_cash + lagos_pos + usdt_tl_l + redot_tl_l + foreign_tl_l
-    gross_a = abuja_naira_tl + abuja_cash + abuja_pos + usdt_tl_a + redot_tl_a + foreign_tl_a
-    row(7, gross_l, gross_a)
+    def rev_row(idx, l, a):
+        t10.cell(idx, 1).text = _money(l)
+        t10.cell(idx, 2).text = _money(a)
+        t10.cell(idx, 3).text = _money(l + a)
 
-    # ---- Section 7: Expenses (table 10) ----
-    t10 = doc.tables[10]
-    report_items = [t10.cell(r, 0).text.strip() for r in range(1, len(t10.rows) - 1)]
-    exp = extract_expenses(wb["EXPENSE SHEET"], start, end, report_items)
-    tot_l = tot_a = 0.0
-    for i, item in enumerate(report_items, start=1):
-        l, a = exp.get(item, (0.0, 0.0))
-        t10.cell(i, 1).text = _money(l)
-        t10.cell(i, 2).text = _money(a)
-        tot_l += l
-        tot_a += a
-    last = len(t10.rows) - 1
-    t10.cell(last, 1).text = _money(tot_l)
-    t10.cell(last, 2).text = _money(tot_a)
+    rev_row(1, lagos_naira_tl, abuja_naira_tl)
+    rev_row(2, lagos_cash, abuja_cash)
+    rev_row(3, lagos_pos, abuja_pos)
+    rev_row(4, usdt_tl_l, usdt_tl_a)
+    rev_row(5, redot_tl_l, redot_tl_a)
+    rev_row(6, foreign_tl_l, foreign_tl_a)
+    rev_row(7, gross_l, gross_a)
 
-    # ---- Section 8: Net revenue calculation ----
-    # These deductions are NOT in the spreadsheet — they are manual, weekly
-    # judgement entries (Greep, advances, picked cash payments). They arrive
-    # from the UI as `section8`. Gross and NET are computed; deductions are
-    # whatever the user entered. If none are given, Section 8 falls back to a
-    # simple gross-minus-expenses net so the report is never left blank.
+    # ---- T11-T14: expense category tables (last row = category TOTAL) ----
+    def fill_expense_table(table):
+        items = [table.cell(r, 0).text.strip() for r in range(1, len(table.rows) - 1)]
+        exp = extract_expenses(wb["EXPENSE SHEET"], start, end, items)
+        cat_l = cat_a = 0.0
+        for i, item in enumerate(items, start=1):
+            l, a = exp.get(item, (0.0, 0.0))
+            table.cell(i, 1).text = _money(l)
+            table.cell(i, 2).text = _money(a)
+            table.cell(i, 3).text = _money(l + a)
+            cat_l += l
+            cat_a += a
+        last = len(table.rows) - 1
+        table.cell(last, 1).text = _money(cat_l)
+        table.cell(last, 2).text = _money(cat_a)
+        table.cell(last, 3).text = _money(cat_l + cat_a)
+        return cat_l, cat_a
+
+    raw_l, raw_a = fill_expense_table(T[11])      # Raw Materials
+    pack_l, pack_a = fill_expense_table(T[12])    # Packaging
+    util_l, util_a = fill_expense_table(T[13])    # Utilities
+    misc_l, misc_a = fill_expense_table(T[14])    # Miscellaneous
+
+    exp_l = raw_l + pack_l + util_l + misc_l
+    exp_a = raw_a + pack_a + util_a + misc_a
+
+    # ---- T15: expense category rollup ----
+    t15 = T[15]
+    for idx, (l, a) in enumerate(
+        [(raw_l, raw_a), (pack_l, pack_a), (util_l, util_a), (misc_l, misc_a)],
+        start=1,
+    ):
+        t15.cell(idx, 1).text = _money(l)
+        t15.cell(idx, 2).text = _money(a)
+        t15.cell(idx, 3).text = _money(l + a)
+    t15.cell(5, 1).text = _money(exp_l)
+    t15.cell(5, 2).text = _money(exp_a)
+    t15.cell(5, 3).text = _money(exp_l + exp_a)
+
+    # ---- T16: Fixed / Operational costs (manual, from section8) ----
     section8 = section8 or {}
-    deductions = section8.get("deductions", [])  # [{label, lagos, abuja}]
-    debt_payable = section8.get("debt_payable", "")        # e.g. "96,610"
-    cash_payments_made = section8.get("cash_payments_made", "")  # e.g. "66,503"
+    deductions = section8.get("deductions", [])          # [{label,lagos,abuja}]
+    debt_payable = section8.get("debt_payable", "")
+    cash_paid = _num(section8.get("cash_payments_made", 0))
+    other_misc = _num(section8.get("other_misc", 0))      # e.g. 4700
+    other_bulk = _num(section8.get("other_bulk", 0))      # e.g. 15000
+    t16 = T[16]
+    fix_l = fix_a = 0.0
+    body_rows = list(range(1, len(t16.rows) - 2))         # rows above SUBTOTAL
+    for ridx, ded in zip(body_rows, deductions):
+        label = ded.get("label", "").strip()
+        l = _num(ded.get("lagos", 0))
+        a = _num(ded.get("abuja", 0))
+        if label:
+            t16.cell(ridx, 0).text = label
+        t16.cell(ridx, 1).text = _money(l)
+        t16.cell(ridx, 2).text = _money(a)
+        t16.cell(ridx, 3).text = _money(l + a)
+        fix_l += l
+        fix_a += a
+    for ridx in body_rows[len(deductions):]:
+        t16.cell(ridx, 1).text = _money(0)
+        t16.cell(ridx, 2).text = _money(0)
+        t16.cell(ridx, 3).text = _money(0)
+    subtotal_row = len(t16.rows) - 2
+    t16.cell(subtotal_row, 1).text = _money(fix_l)
+    t16.cell(subtotal_row, 2).text = _money(fix_a)
+    t16.cell(subtotal_row, 3).text = _money(fix_l + fix_a)
+    debt_row = len(t16.rows) - 1
+    t16.cell(debt_row, 1).text = "—"
+    t16.cell(debt_row, 2).text = "—"
+    t16.cell(debt_row, 3).text = f"₺ {debt_payable}" if debt_payable else "—"
 
-    # Detailed net-calc table (the 8-row table: Gross / Less:… / NET)
-    t12 = _table_by_header(doc, "Gross Total Revenue")
-    if t12 is not None:
-        # row 1 = Gross
-        t12.cell(1, 1).text = _money(gross_l)
-        t12.cell(1, 2).text = _money(gross_a)
-        less_l = less_a = 0.0
-        # rows 2..(n-1) are the Less: lines. Match by trailing label text if
-        # present in template, else write the user's deductions in order.
-        body_rows = list(range(2, len(t12.rows) - 1))
-        for ridx, ded in zip(body_rows, deductions):
-            label = ded.get("label", "").strip()
-            l = _num(ded.get("lagos", 0))
-            a = _num(ded.get("abuja", 0))
-            t12.cell(ridx, 0).text = f"Less: {label}" if label else t12.cell(ridx, 0).text
-            t12.cell(ridx, 1).text = _money(l) if (l or ded.get("lagos") not in (None, "")) else "₺ "
-            t12.cell(ridx, 2).text = _money(a) if (a or ded.get("abuja") not in (None, "")) else ""
-            less_l += l
-            less_a += a
-        # blank any leftover template Less: rows the user didn't fill
-        for ridx in body_rows[len(deductions):]:
-            t12.cell(ridx, 1).text = "₺ "
-            t12.cell(ridx, 2).text = ""
-        net_l = gross_l - less_l
-        net_a = gross_a - less_a
-        last12 = len(t12.rows) - 1
-        t12.cell(last12, 1).text = _money(net_l)
-        t12.cell(last12, 2).text = _money(net_a)
-        combined_net = net_l + net_a
-    else:
-        # fallback
-        combined_net = (gross_l + gross_a) - (tot_l + tot_a)
-        net_l = gross_l - tot_l
-        net_a = gross_a - tot_a
-        less_l = less_a = 0.0
+    # ---- T17: net calc ----
+    net_l = gross_l - exp_l - fix_l
+    net_a = gross_a - exp_a - fix_a
+    t17 = T[17]
 
-    # Small 2-row table: Outstanding Debt / Cash Payments Made This Week
-    t11 = _table_by_header(doc, "Outstanding Debt (Payable to Suppliers)")
-    if t11 is not None:
-        if debt_payable:
-            t11.cell(0, 1).text = f"₺ {debt_payable}"
-        if cash_payments_made:
-            t11.cell(1, 1).text = f"₺ {cash_payments_made}"
+    def net_row(idx, l, a):
+        t17.cell(idx, 1).text = _money(l)
+        t17.cell(idx, 2).text = _money(a)
+        t17.cell(idx, 3).text = _money(l + a)
 
-    # Outstanding-debt summary line (single-cell table 13) + combined paragraph
-    if debt_payable:
-        for t in doc.tables:
-            if len(t.rows) and "Outstanding Debt" in t.cell(0, 0).text and len(t.columns) == 1:
-                t.cell(0, 0).text = (
-                    f"Outstanding Debt (Payable to Suppliers)"
-                    f"                                               =       ₺ {debt_payable}"
-                )
-                break
+    net_row(1, gross_l, gross_a)
+    net_row(2, exp_l, exp_a)
+    net_row(3, fix_l, fix_a)
+    net_row(4, net_l, net_a)
+    combined_net = net_l + net_a
 
+    # ---- T1: top summary ----
+    t1 = T[1]
+    net_row_helper = [
+        (1, gross_l, gross_a),
+        (2, exp_l, exp_a),
+        (3, fix_l, fix_a),
+        (4, net_l, net_a),
+    ]
+    for idx, l, a in net_row_helper:
+        t1.cell(idx, 1).text = _money(l)
+        t1.cell(idx, 2).text = _money(a)
+        t1.cell(idx, 3).text = _money(l + a)
+    t1.cell(5, 1).text = "—"
+    t1.cell(5, 2).text = "—"
+    t1.cell(5, 3).text = f"₺ {debt_payable}" if debt_payable else "—"
+
+    # ---- T18: notes ----
+    nl = section8.get("notes_lagos", "") or "NIL"
+    na = section8.get("notes_abuja", "") or "NIL"
+    t18 = T[18]
+    t18.cell(0, 0).text = f"Lagos (Lefkosa) Notes: {nl}"
+    if len(t18.rows) > 1:
+        t18.cell(1, 0).text = f"Abuja (Magusa) Notes: {na}"
+
+    # ---- Auto-filled explanatory notes (wording fixed, numbers live) ----
+    other_total = other_misc + other_bulk
+    note_updates = {
+        "Note: Of the": (
+            f"Note: Of the {_money(exp_l)} in Lagos expenses recorded above, "
+            f"{_money(cash_paid)} was settled in cash this week; the remaining "
+            f"balance forms part of the Outstanding Debt reported in Section 4."
+        ),
+        "Other Expenses (": (
+            f"Other Expenses ({_money(other_total)}, Lagos) includes "
+            f"{_money(other_misc)} in general miscellaneous costs and a "
+            f"{_money(other_bulk)} bulk chicken stock purchase outside the "
+            f"weekly itemized list."
+        ),
+    }
     for p in doc.paragraphs:
-        if "COMBINED NET REVENUE BALANCE" in p.text:
-            txt = f"COMBINED NET REVENUE BALANCE\t\t\t\t\t=\t{_money(combined_net)}"
-            if p.runs:
-                p.runs[0].text = txt
-                for r_ in p.runs[1:]:
-                    r_.text = ""
-            else:
-                p.text = txt
-            break
-
-    # Section 9 notes (table 14) — optional
-    notes = (section8.get("notes_lagos", ""), section8.get("notes_abuja", ""))
-    if any(notes):
-        for t in doc.tables:
-            if len(t.rows) == 1 and "Notes:" in t.cell(0, 0).text:
-                nl = notes[0] or "NIL"
-                na = notes[1] or "NIL"
-                t.cell(0, 0).text = (
-                    f"Lagos (Lefkosa) Notes: {nl}\n \n \n \n"
-                    f"Abuja (Magusa) Notes: {na}\n \n \n "
-                )
-                break
+        for prefix, newtext in note_updates.items():
+            if p.text.strip().startswith(prefix):
+                if p.runs:
+                    p.runs[0].text = newtext
+                    for r_ in p.runs[1:]:
+                        r_.text = ""
+                else:
+                    p.text = newtext
+    
+    # ---- Standalone banner paragraphs (overwrite template's sample numbers) ----
+    debt_text = f"₺ {debt_payable}" if debt_payable else "—"
+    banner_updates = [
+        ("COMBINED NET REVENUE BALANCE",
+         f"COMBINED NET REVENUE BALANCE = {_money(combined_net)}"),
+        ("OUTSTANDING DEBT",
+         f"OUTSTANDING DEBT (PAYABLE TO SUPPLIERS) = {debt_text}"),
+    ]
+    for p in doc.paragraphs:
+        for prefix, newtext in banner_updates:
+            if p.text.strip().upper().startswith(prefix):
+                if p.runs:
+                    p.runs[0].text = newtext
+                    for r_ in p.runs[1:]:
+                        r_.text = ""
+                else:
+                    p.text = newtext
 
     out = io.BytesIO()
     doc.save(out)
     out.seek(0)
     return out.read(), {
         "gross_lagos": gross_l, "gross_abuja": gross_a,
-        "expenses_lagos": tot_l, "expenses_abuja": tot_a,
-        "deductions_lagos": less_l, "deductions_abuja": less_a,
+        "expenses_lagos": exp_l, "expenses_abuja": exp_a,
+        "fixed_lagos": fix_l, "fixed_abuja": fix_a,
         "net_lagos": net_l, "net_abuja": net_a,
         "net": combined_net,
-        "lagos_columns": lagos["_columns_found"],
-        "abuja_columns": abuja["_columns_found"],
         "days_found": len(lagos["_dates"]),
     }
