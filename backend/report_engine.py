@@ -143,6 +143,7 @@ EXPENSE_ALIAS = {
     "Aluminium foil": "Aluminium Foil",
     "Bike Repairs": "Bike Fixing",
     "Delivery Driver": "Kitchen Staff Payment",
+    "Electricty": "Electricity",
 }
 
 
