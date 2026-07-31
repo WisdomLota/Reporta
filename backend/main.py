@@ -38,6 +38,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---- Billing gate -------------------------------------------------------
+# PAID_UNTIL is a YYYY-MM-DD env var you update on Render each month after
+# payment. Warning shows from the 1st; hard lock from the 3rd.
+def _billing_status():
+    raw = os.environ.get("PAID_UNTIL", "").strip()
+    today = datetime.date.today()
+    if not raw:
+        return {"state": "ok", "message": "", "paid_until": None}
+    try:
+        paid_until = datetime.datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError:
+        return {"state": "ok", "message": "", "paid_until": None}
+
+    if today <= paid_until:
+        return {"state": "ok", "message": "", "paid_until": raw}
+
+    days_over = (today - paid_until).days
+    if days_over < 2:  # 1st and 2nd = warning window
+        return {
+            "state": "warning",
+            "paid_until": raw,
+            "message": (
+                "Monthly service payment is due. Reporta will lock on the 3rd "
+                "if payment isn't confirmed."
+            ),
+        }
+    return {
+        "state": "locked",
+        "paid_until": raw,
+        "message": (
+            "Reporta is locked pending this month's service payment. "
+            "Please contact your administrator to restore access."
+        ),
+    }
+
 
 def _parse_date(s: str) -> datetime.date:
     return datetime.datetime.strptime(s.strip(), "%Y-%m-%d").date()
@@ -98,6 +133,9 @@ async def preview(
         exchange_rate_text=exchange_rate_text, date_prepared=date_prepared,
         section8=section8,
     )
+    gate = _billing_status()
+    if gate["state"] == "locked":
+        return JSONResponse({"ok": False, "error": gate["message"], "locked": True}, status_code=402)
     try:
         _, meta = await _run(workbook, template, start, end, form)
         meta = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in meta.items()}
@@ -128,6 +166,9 @@ async def generate(
         exchange_rate_text=exchange_rate_text, date_prepared=date_prepared,
         section8=section8,
     )
+    gate = _billing_status()
+    if gate["state"] == "locked":
+        return JSONResponse({"ok": False, "error": gate["message"], "locked": True}, status_code=402)
     doc_bytes, _ = await _run(workbook, template, start, end, form)
     fname = f"YOOWA_Report_{start}_to_{end}.docx"
     return StreamingResponse(
@@ -137,6 +178,11 @@ async def generate(
     )
 
 
+@app.get("/status")
+def status():
+    return _billing_status()
+
+
 @app.get("/")
 def root():
-    return {"Reporta API running"}
+    return {"status": "Reporta API running"}

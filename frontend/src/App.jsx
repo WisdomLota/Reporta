@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 const API = import.meta.env.VITE_API_URL || '/api'
 
@@ -70,8 +70,18 @@ export default function App() {
   const [status, setStatus] = useState({ kind: '', msg: '' })
   const [summary, setSummary] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [billing, setBilling] = useState({ state: 'ok', message: '' })
 
-  const ready = workbook && template && start && end
+  useEffect(() => {
+    fetch(`${API}/status`)
+      .then((r) => r.json())
+      .then(setBilling)
+      .catch(() => {})
+  }, [])
+
+  const locked = billing.state === 'locked'
+
+  const ready = workbook && template && start && end && !locked
 
   function setDed(i, key, val) {
     setDeductions((ds) => ds.map((d, idx) => (idx === i ? { ...d, [key]: val } : d)))
@@ -296,6 +306,13 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {billing.state !== 'ok' && (
+        <div className={'bill-banner ' + billing.state}>
+          <strong>{locked ? 'Access locked' : 'Payment due'}</strong>
+          <span>{billing.message}</span>
+        </div>
+      )}
 
       <div className="foot">
         Reads HAMITKOY SALES → Lefkosa · MAGUSA SALES → Magusa · EXPENSE SHEET by item.

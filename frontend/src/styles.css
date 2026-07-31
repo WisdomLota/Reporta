@@ -177,3 +177,16 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   .ded-head { display: none; }
   .ded-row { grid-template-columns: 1fr 1fr 1fr 28px; }
 }
+
+/* Billing banner */
+.bill-banner {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 14px 16px; border-radius: 8px; margin-bottom: 22px;
+  font-size: 13px; line-height: 1.5;
+}
+.bill-banner strong {
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.bill-banner.warning { background: #fdf3e0; border: 1px solid #e8c98a; color: #6b4c12; }
+.bill-banner.locked  { background: #fbeae7; border: 1px solid #e0a89d; color: #7a2b1d; }
