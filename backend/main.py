@@ -23,6 +23,7 @@ import os
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+import httpx
 
 import report_engine as R
 
@@ -72,6 +73,29 @@ def _billing_status():
             "Please contact your administrator to restore access."
         ),
     }
+
+# ---- Usage notifications (Telegram) ------------------------------------
+async def _notify(action: str, form: dict):
+    token = os.environ.get("TELEGRAM_TOKEN", "").strip()
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        return  # notifications disabled if not configured
+    when = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    text = (
+        f"📊 Reporta used\n"
+        f"Action: {action}\n"
+        f"Week: {form.get('start','?')} → {form.get('end','?')}\n"
+        f"Prepared by: {form.get('prepared_by','?')}\n"
+        f"Time: {when}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": text},
+            )
+    except Exception:
+        pass  # never let a failed notification break the app
 
 
 def _parse_date(s: str) -> datetime.date:
@@ -135,12 +159,15 @@ async def preview(
     )
     gate = _billing_status()
     if gate["state"] == "locked":
+        await _notify("preview — BLOCKED (locked)", {"start": start, "end": end, "prepared_by": prepared_by})
         return JSONResponse({"ok": False, "error": gate["message"], "locked": True}, status_code=402)
     try:
         _, meta = await _run(workbook, template, start, end, form)
         meta = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in meta.items()}
+        await _notify("preview", {"start": start, "end": end, "prepared_by": prepared_by})
         return JSONResponse({"ok": True, "summary": meta})
     except Exception as e:  # surface a readable error to the UI
+        await _notify(f"preview — FAILED: {str(e)[:80]}", {"start": start, "end": end, "prepared_by": prepared_by})
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
 
@@ -168,9 +195,11 @@ async def generate(
     )
     gate = _billing_status()
     if gate["state"] == "locked":
+        await _notify("generate — BLOCKED (locked)", {"start": start, "end": end, "prepared_by": prepared_by})
         return JSONResponse({"ok": False, "error": gate["message"], "locked": True}, status_code=402)
     doc_bytes, _ = await _run(workbook, template, start, end, form)
     fname = f"YOOWA_Report_{start}_to_{end}.docx"
+    await _notify("generate", {"start": start, "end": end, "prepared_by": prepared_by})
     return StreamingResponse(
         io.BytesIO(doc_bytes),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
